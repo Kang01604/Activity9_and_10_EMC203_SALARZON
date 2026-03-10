@@ -30,11 +30,21 @@ public class ShapeGen : MonoBehaviour
     [Header("Mouse Drag Rotation")]
     public float mouseSensitivity = 0.3f; // How fast shapes rotate per pixel dragged
 
+    [Header("Screensaver Mode")]
+    // Toggle in the Inspector or press Tab at runtime to switch modes
+    public bool screensaverMode = false;
+    // Independent spin speeds for screensaver — X rotates fully with no clamp
+    public float screensaverSpeedY = 40f; // Degrees per second on Y axis
+    public float screensaverSpeedX = 20f; // Degrees per second on X axis — full 360, no clamping
+
     // Current Y rotation in degrees — driven by auto-spin and horizontal mouse drag
     private float _rotationY = 0f;
 
-    // Current X tilt in degrees — driven by vertical mouse drag only, clamped to +-80
+    // Current X tilt in degrees — driven by vertical mouse drag only, clamped to +-80 in normal mode
     private float _rotationX = 0f;
+
+    // Current Z roll in degrees — not driven by any input by default, set in code as needed
+    private float _rotationZ = 0f;
 
     // Tracks whether the left mouse button is currently held down
     private bool _isDragging = false;
@@ -77,6 +87,34 @@ public class ShapeGen : MonoBehaviour
     // Update: Rotation Logic
     private void Update()
     {
+        var keyboard = Keyboard.current;
+
+        // Tab toggles screensaver mode at runtime — also toggleable via Inspector checkbox
+        if (keyboard != null && keyboard.tabKey.wasPressedThisFrame)
+        {
+            screensaverMode = !screensaverMode;
+
+            // Reset X tilt when leaving screensaver so the clamp doesn't snap harshly
+            if (!screensaverMode)
+                _rotationX = Mathf.Clamp(_rotationX, -80f, 80f);
+        }
+
+        if (screensaverMode)
+        {
+            UpdateScreensaver();
+        }
+        else
+        {
+            UpdateNormal();
+        }
+
+        // Keep Y rotation within 0-360 range (shared by both modes)
+        _rotationY %= 360f;
+    }
+
+    // Normal mode: Y auto-spins, mouse drag controls X (clamped) and Y
+    private void UpdateNormal()
+    {
         var mouse = Mouse.current;
         if (mouse == null) return; // No mouse connected, skip
 
@@ -87,9 +125,6 @@ public class ShapeGen : MonoBehaviour
         // Auto-spin on Y axis — pauses while the user is dragging so inputs don't fight
         if (!_isDragging)
             _rotationY += autoRotateSpeed * Time.deltaTime;
-
-        // Keep Y rotation within 0-360 range
-        if (_rotationY >= 360f) _rotationY -= 360f;
 
         if (_isDragging)
         {
@@ -105,6 +140,18 @@ public class ShapeGen : MonoBehaviour
             // Clamp X tilt so shapes never flip fully upside down
             _rotationX = Mathf.Clamp(_rotationX, -80f, 80f);
         }
+    }
+
+    // Screensaver mode: both X and Y spin freely and continuously — no mouse input, no X clamp
+    private void UpdateScreensaver()
+    {
+        _isDragging = false; // Ensure drag state is clean when screensaver takes over
+
+        _rotationY += screensaverSpeedY * Time.deltaTime;
+
+        // X rotates fully — wraps around like Y instead of clamping
+        _rotationX += screensaverSpeedX * Time.deltaTime;
+        _rotationX %= 360f;
     }
 
     // Rotation Math
@@ -128,11 +175,21 @@ public class ShapeGen : MonoBehaviour
         return new Vector3(p.x, p.y * cos - p.z * sin, p.y * sin + p.z * cos) + pivot;
     }
 
-    // Applies Y rotation first, then X tilt — order matters here
+    // Rotates a point around a pivot on the Z axis (clockwise/counter roll)
+    private Vector3 RotateZ(Vector3 point, Vector3 pivot, float angleDeg)
+    {
+        float rad = angleDeg * Mathf.Deg2Rad;
+        float cos = Mathf.Cos(rad), sin = Mathf.Sin(rad);
+        Vector3 p = point - pivot; // Translate to origin before rotating
+        return new Vector3(p.x * cos - p.y * sin, p.x * sin + p.y * cos, p.z) + pivot;
+    }
+
+    // Applies Y rotation first, then X tilt, then Z roll — order matters here
     private Vector3 Rotate(Vector3 point, Vector3 center)
     {
         point = RotateY(point, center, _rotationY);
         point = RotateX(point, center, _rotationX);
+        point = RotateZ(point, center, _rotationZ);
         return point;
     }
 
